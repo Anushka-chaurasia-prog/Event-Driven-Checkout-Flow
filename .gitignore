@@ -25,3 +25,4 @@ Desktop.ini
 # Docker local data
 pgdata/
 docker_pgdata/
+
