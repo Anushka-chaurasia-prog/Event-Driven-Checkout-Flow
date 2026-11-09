@@ -1,6 +1,13 @@
 # CheckoutFlow: Event‑Driven Checkout Platform
 
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Vercel-success?style=for-the-badge&logo=vercel)](https://event-driven-checkout-flow-vwbp.vercel.app)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github)](https://github.com/Anushka-chaurasia-prog/Event-Driven-Checkout-Flow)
+[![Tech Stack](https://img.shields.io/badge/Java_21-Spring_Boot_3-blue?style=for-the-badge&logo=openjdk)](https://github.com/Anushka-chaurasia-prog/Event-Driven-Checkout-Flow)
+[![Messaging](https://img.shields.io/badge/Apache_Kafka-KRaft_Mode-red?style=for-the-badge&logo=apachekafka)](https://github.com/Anushka-chaurasia-prog/Event-Driven-Checkout-Flow)
+
 A multi‑service, event‑driven checkout system built with **Java 21**, **Spring Boot 3**, **Apache Kafka**, **PostgreSQL**, **Redis**, and **Docker Compose**. The project showcases saga orchestration, idempotent processing, transactional outbox, and robust failure handling – perfect for interview demos and resume‑worthy achievements.
+
+🌐 **Live Cloud Interactive Demo:** [https://event-driven-checkout-flow-vwbp.vercel.app](https://event-driven-checkout-flow-vwbp.vercel.app)
 
 ## Quick Start
 ```bash
