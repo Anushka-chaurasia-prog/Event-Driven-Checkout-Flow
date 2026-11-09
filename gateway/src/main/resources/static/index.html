@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CheckoutFlow - Event-Driven Microservices Dashboard</title>
+  <title>CheckoutFlow — Event-Driven Saga Platform</title>
   
   <!-- Inter & JetBrains Mono Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -83,11 +83,11 @@
         </div>
       </div>
 
-      <!-- Live Service Indicators -->
+      <!-- Live Service / Environment Indicators -->
       <div class="flex items-center gap-3 text-xs font-mono">
-        <span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E5DEC9] text-black font-semibold border border-[#D4C9AF] shadow-xs">
+        <span id="envBadge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#E5DEC9] text-black font-semibold border border-[#D4C9AF] shadow-xs">
           <span class="w-2 h-2 rounded-full bg-[#8B0101] animate-pulse"></span>
-          Gateway: localhost:8090
+          Detecting Environment...
         </span>
         <span class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#E5DEC9] text-[#554438] font-medium border border-[#D4C9AF]">
           Kafka KRaft: 6 Partitions
@@ -96,6 +96,19 @@
 
     </div>
   </header>
+
+  <!-- Cloud Demo Mode Banner (Shown automatically on Vercel / Cloud preview) -->
+  <div id="cloudBanner" class="bg-[#F0EAE1] border-b border-[#DFD6C2] px-6 py-2 text-xs text-[#554438] hidden">
+    <div class="max-w-7xl mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="px-2 py-0.5 rounded bg-[#8B0101] text-[#EDE7C7] font-bold text-[10px] tracking-wider uppercase">Portfolio Demo</span>
+        <span>Running <strong>Interactive Cloud Simulator</strong>. Full saga state transitions, idempotent hashing, and Kafka outbox streams are simulated in real-time.</span>
+      </div>
+      <a href="https://github.com/Anushka-chaurasia-prog/Event-Driven-Checkout-Flow" target="_blank" class="underline font-semibold hover:text-[#8B0101] hidden md:inline">
+        View Backend Source on GitHub →
+      </a>
+    </div>
+  </div>
 
   <!-- Main Grid -->
   <main class="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -285,6 +298,47 @@
     let currentQuantity = 2;
     let activeOrderId = null;
     let pollInterval = null;
+    let isSimulatorActive = false;
+    
+    // Idempotency cache for simulation mode
+    const simulatedOrdersByHash = new Map();
+
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    // Environment detection
+    async function initEnvironment() {
+      const badge = document.getElementById('envBadge');
+      const banner = document.getElementById('cloudBanner');
+
+      if (!isLocalhost) {
+        // We are on Vercel / GitHub Pages
+        isSimulatorActive = true;
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span> Cloud Interactive Demo`;
+        banner.classList.remove('hidden');
+        log('Connected to Cloud Interactive Environment.', 'success');
+        log('Virtual Kafka KRaft cluster (6 partitions) & Outbox relay initialized.');
+        return;
+      }
+
+      // We are on localhost: verify if Docker stack is reachable
+      try {
+        const res = await fetch('http://localhost:8090/actuator/health', { signal: AbortSignal.timeout(1500) });
+        if (res.ok) {
+          isSimulatorActive = false;
+          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-[#8B0101] animate-pulse"></span> Local Gateway: 8090 (Live Stack)`;
+          log('Connected to local Docker Gateway on port 8090.', 'success');
+        } else {
+          throw new Error('Gateway not UP');
+        }
+      } catch (e) {
+        isSimulatorActive = true;
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span> Simulator Mode (Docker Offline)`;
+        banner.classList.remove('hidden');
+        log('Local Docker stack not responding. Activated interactive saga simulator.', 'warn');
+      }
+    }
+
+    initEnvironment();
 
     function setQuantity(qty) {
       currentQuantity = qty;
@@ -389,16 +443,115 @@
       }
     }
 
+    // High-Fidelity Saga Simulator (For Vercel / Cloud Demo)
+    async function runSimulatedSaga(key, qty, prodId) {
+      const isExcess = qty === 99999;
+      
+      // Idempotency check:
+      if (simulatedOrdersByHash.has(key)) {
+        const existing = simulatedOrdersByHash.get(key);
+        log(`[Idempotency-Check] Key '${key.slice(0, 8)}...' found in Transaction Ledger!`, 'warn');
+        log(`[Idempotency-Check] Returning existing Order ID: ${existing.id} (Status: ${existing.status}). No duplicate saga started.`, 'success');
+        setBadge(existing.status);
+        if (existing.status === 'CONFIRMED') {
+          highlightStep(1, 'done');
+          highlightStep(2, 'done');
+          highlightStep(3, 'done');
+          highlightStep(4, 'done');
+        } else if (existing.status === 'REJECTED') {
+          highlightStep(1, 'done');
+          highlightStep(2, 'failed');
+        }
+        return;
+      }
+
+      // New Order Execution:
+      const simOrderId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+      activeOrderId = simOrderId;
+
+      // 1. Order Created
+      log(`[order-service] POST /api/orders (Qty: ${qty}, Key: ${key.slice(0, 8)}...)`, 'event');
+      log(`[order-service] ACID Insert: Order ${simOrderId} persisted with status PENDING`, 'success');
+      log(`[order-service] Transactional Outbox: Wrote ReserveStockCmd to outbox_events`);
+      highlightStep(1, 'done');
+      
+      // 2. Inventory Step
+      await new Promise(r => setTimeout(r, 900));
+      highlightStep(2, 'active');
+      log(`[Kafka-KRaft] Topic 'order.commands' → Partition 2: Published ReserveStockCmd`);
+      log(`[inventory-service] Listener: Processing ReserveStockCmd for Product PROD-1`);
+
+      if (isExcess) {
+        // Compensation Path (Stock Rejected)
+        await new Promise(r => setTimeout(r, 1100));
+        log(`[inventory-service] InsufficientStockException: Requested ${qty}, available: 100`, 'error');
+        log(`[inventory-service] Emitted StockRejectedEvent onto 'inventory.events'`, 'warn');
+        highlightStep(2, 'failed');
+        setBadge('REJECTED');
+        
+        await new Promise(r => setTimeout(r, 700));
+        log(`[order-service] Saga Compensation Triggered: Handling StockRejectedEvent`, 'warn');
+        log(`[order-service] Order ${simOrderId} transitioned to terminal status REJECTED`, 'error');
+        simulatedOrdersByHash.set(key, { id: simOrderId, status: 'REJECTED' });
+        return;
+      }
+
+      // Happy Path (Stock Reserved)
+      await new Promise(r => setTimeout(r, 1100));
+      log(`[inventory-service] Stock reserved. Emitted StockReservedEvent to 'inventory.events'`, 'success');
+      highlightStep(2, 'done');
+      setBadge('AWAITING_PAYMENT');
+      log(`[order-service] Consumed StockReservedEvent. State: AWAITING_PAYMENT`);
+
+      // 3. Payment Step
+      await new Promise(r => setTimeout(r, 1000));
+      highlightStep(3, 'active');
+      log(`[order-service] Transactional Outbox: Wrote ChargePaymentCmd to 'payment.commands'`);
+      log(`[payment-service] Idempotent Charge: Processing ₹${(qty * 50).toFixed(2)} with key ${key.slice(0, 8)}...`);
+
+      await new Promise(r => setTimeout(r, 1100));
+      log(`[payment-service] Payment Succeeded. Ledger record saved in payments_db`, 'success');
+      log(`[payment-service] Emitted PaymentSucceededEvent to 'payment.events'`);
+      highlightStep(3, 'done');
+      setBadge('CONFIRMED');
+      log(`[order-service] Order ${simOrderId} transitioned to terminal status CONFIRMED!`, 'success');
+
+      // 4. Notification Step
+      await new Promise(r => setTimeout(r, 700));
+      highlightStep(4, 'active');
+      log(`[order-service] Emitted PublishOrderConfirmedCmd to 'order.events'`);
+      
+      await new Promise(r => setTimeout(r, 600));
+      log(`[notification-service] Customer confirmation dispatched for order ${simOrderId.slice(0, 8)}...`, 'success');
+      highlightStep(4, 'done');
+      log(`🎉 Distributed Saga Complete! All invariants satisfied with zero data loss.`, 'success');
+
+      simulatedOrdersByHash.set(key, { id: simOrderId, status: 'CONFIRMED' });
+    }
+
     async function placeOrder() {
       const key = document.getElementById('idempotencyKey').value.trim();
-      const payload = {
-        items: [{ productId: "11111111-1111-1111-1111-111111111111", quantity: currentQuantity }]
-      };
+      const qty = parseInt(document.getElementById('orderQuantity').value, 10) || currentQuantity;
+      const prodId = document.getElementById('productId').value.trim();
 
       resetSteps();
       setBadge('PENDING');
       highlightStep(1, 'active');
-      log(`POST /api/orders (Qty: ${currentQuantity}, Key: ${key.slice(0, 8)}...)`, 'event');
+
+      if (isSimulatorActive) {
+        await runSimulatedSaga(key, qty, prodId);
+        return;
+      }
+
+      // Local Real Docker Backend
+      const payload = {
+        items: [{ productId: prodId, quantity: qty }]
+      };
+
+      log(`POST http://localhost:8090/api/orders (Qty: ${qty}, Key: ${key.slice(0, 8)}...)`, 'event');
 
       try {
         const res = await fetch('http://localhost:8090/api/orders', {
@@ -419,17 +572,18 @@
         log(`Order created: ${activeOrderId} (Status: ${data.status})`, 'success');
         highlightStep(1, 'done');
 
-        // Start polling
         startPolling(activeOrderId);
       } catch (e) {
-        log(`Failed to create order: ${e.message}`, 'error');
-        setBadge('ERROR');
-        highlightStep(1, 'failed');
+        log(`Local backend unreachable (${e.message}). Switching to simulator...`, 'warn');
+        isSimulatorActive = true;
+        document.getElementById('envBadge').innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span> Simulator Mode (Fallback)`;
+        document.getElementById('cloudBanner').classList.remove('hidden');
+        await runSimulatedSaga(key, qty, prodId);
       }
     }
 
     function testIdempotency() {
-      log(`Re-executing with existing key: ${document.getElementById('idempotencyKey').value.slice(0, 8)}...`, 'warn');
+      log(`Re-executing with existing Idempotency-Key...`, 'warn');
       placeOrder();
     }
 
