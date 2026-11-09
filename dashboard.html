@@ -533,52 +533,65 @@
     }
 
     async function placeOrder() {
-      const key = document.getElementById('idempotencyKey').value.trim();
-      const qty = parseInt(document.getElementById('orderQuantity').value, 10) || currentQuantity;
-      const prodId = document.getElementById('productId').value.trim();
-
-      resetSteps();
-      setBadge('PENDING');
-      highlightStep(1, 'active');
-
-      if (isSimulatorActive) {
-        await runSimulatedSaga(key, qty, prodId);
-        return;
-      }
-
-      // Local Real Docker Backend
-      const payload = {
-        items: [{ productId: prodId, quantity: qty }]
-      };
-
-      log(`POST http://localhost:8090/api/orders (Qty: ${qty}, Key: ${key.slice(0, 8)}...)`, 'event');
+      const btn = document.getElementById('btnPlaceOrder');
+      if (btn) btn.disabled = true;
 
       try {
-        const res = await fetch('http://localhost:8090/api/orders', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': key,
-            'Authorization': 'Bearer demo-token',
-            'X-User-Id': '00000000-0000-0000-0000-000000000001'
-          },
-          body: JSON.stringify(payload)
-        });
+        const keyInput = document.getElementById('idempotencyKey');
+        const key = keyInput && keyInput.value ? keyInput.value.trim() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+        const qty = currentQuantity;
+        const prodId = "11111111-1111-1111-1111-111111111111";
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        resetSteps();
+        setBadge('PENDING');
+        highlightStep(1, 'active');
 
-        const data = await res.json();
-        activeOrderId = data.orderId;
-        log(`Order created: ${activeOrderId} (Status: ${data.status})`, 'success');
-        highlightStep(1, 'done');
+        if (isSimulatorActive) {
+          await runSimulatedSaga(key, qty, prodId);
+          return;
+        }
 
-        startPolling(activeOrderId);
-      } catch (e) {
-        log(`Local backend unreachable (${e.message}). Switching to simulator...`, 'warn');
-        isSimulatorActive = true;
-        document.getElementById('envBadge').innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span> Simulator Mode (Fallback)`;
-        document.getElementById('cloudBanner').classList.remove('hidden');
-        await runSimulatedSaga(key, qty, prodId);
+        // Local Real Docker Backend
+        const payload = {
+          items: [{ productId: prodId, quantity: qty }]
+        };
+
+        log(`POST http://localhost:8090/api/orders (Qty: ${qty}, Key: ${key.slice(0, 8)}...)`, 'event');
+
+        try {
+          const res = await fetch('http://localhost:8090/api/orders', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Idempotency-Key': key,
+              'Authorization': 'Bearer demo-token',
+              'X-User-Id': '00000000-0000-0000-0000-000000000001'
+            },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+
+          const data = await res.json();
+          activeOrderId = data.orderId;
+          log(`Order created: ${activeOrderId} (Status: ${data.status})`, 'success');
+          highlightStep(1, 'done');
+
+          startPolling(activeOrderId);
+        } catch (e) {
+          log(`Local backend unreachable (${e.message}). Switching to simulator...`, 'warn');
+          isSimulatorActive = true;
+          const badge = document.getElementById('envBadge');
+          if (badge) badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span> Simulator Mode (Fallback)`;
+          const banner = document.getElementById('cloudBanner');
+          if (banner) banner.classList.remove('hidden');
+          await runSimulatedSaga(key, qty, prodId);
+        }
+      } catch (err) {
+        log(`Error executing saga: ${err.message}`, 'error');
+        console.error(err);
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
